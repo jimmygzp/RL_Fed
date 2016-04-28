@@ -2,10 +2,13 @@ import random
 import cPickle as pickle
 from collections import defaultdict
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 STEP = 25 ## 25bps steps
 ECONOMY_DEBUG = 0
 FED_DEBUG = 0
+GRAPH = 1
+
 K = 1000
 
 MIN_RATE = 0
@@ -60,7 +63,7 @@ class economy:
 			print "New real interest rate = " + str(R_new)
 
 		new_y = self.output_gap(Yt, R_new)
-		inflation = self.inflation(R_new, Yt, new_y)
+		inflation = self.inflation(Pt, Yt, new_y)
 
 		if ECONOMY_DEBUG:
 			print "New gap = " + str(new_y)
@@ -174,7 +177,7 @@ class fed:
 		## set current rewards to zero, back to initial conditions
 		
 		state = initial_state
-		self.cumulative_reward = self.calculate_rewards(state)
+		self.cumulative_reward = self.calculate_rewards(0, state,0 )
 
 		t = 0
 		inflation_array = []
@@ -196,33 +199,49 @@ class fed:
 			action = 0
 			max_f = -float("inf")
 			reward = 0
+			q = -float("inf")
+			next_state = state
 
 			for action_candidate in self.rate_grid: ## 40 comparisons for each time period
+				
 				next_state_candidate = economy.next(state, action_candidate)
 				next_action_candidate = self.policy[next_state_candidate]
-				f = self.Q[(next_state_candidate, next_action_candidate)] + K / (self.times_visited[next_state_candidate]+1) ## avoid div/0 error
-				'''
+				##f = self.Q[(next_state_candidate, next_action_candidate)] + K / (self.times_visited[next_state_candidate]+1) ## avoid div/0 error
+				f = self.Q[(next_state_candidate, next_action_candidate)] + K / (self.times_visited[(next_state_candidate, next_action_candidate)]+1) ## avoid div/0 error
+
+				reward_potential = self.calculate_rewards(action_candidate, next_state_candidate, next_action_candidate)
+
+				q_candidate  = (1-self.alpha) * self.Q[(state, action)]  + self.alpha * (reward_potential + self.gamma * f)
+				self.Q[(state, action)] = q_candidate
+
+
 				if FED_DEBUG:
 					print "action candidate: " + str(action_candidate)
 					print "f = " + str(f)
-				'''
-				if f > max_f:
-					max_f = f
+				
+				if q_candidate > q:
 					action = action_candidate
 					next_state = next_state_candidate
-					next_action = next_action_candidate
-					##reward = reward_potential
+					q = q_candidate
+					reward = reward_potential
 					if FED_DEBUG:
 						print "New state-action pair considered.. ",
+						print "action = " + str(action)
 						print "next state candidate = " + str(next_state_candidate),
 						print "next action candidate = " + str(next_action_candidate),
-						print "times visited = " + str(self.times_visited[next_state_candidate]),
-						##print "reward calculated = " + str(reward_potential),
+						print "times visited = " + str(self.times_visited[(next_state_candidate, next_action_candidate)]),
+						print "reward calculated = " + str(reward),
 						print "weighted f = " + str(f)
-			##q = (1-self.alpha) * self.Q[(state, action)] + self.alpha * [reward + self.gamma * max_f]
+						print "q = " + str(q_candidate)
 
-			q = (1-self.alpha) * self.Q[(state, action)]  + self.alpha * (reward + self.gamma * max_f)
+		
+			## an optimal action and q are selected
 
+			if FED_DEBUG:
+				print "============FINAL ACTION FOR STATE " + str(state) + " is " + str(action) + " ==================="
+				print "============ q = " + str(q)
+				print "============next state = " + str(next_state)
+			
 
 			inflation_array.append(state[0])
 			gap_array.append(state[1])
@@ -230,33 +249,44 @@ class fed:
 
 
 
-			self.Q[(state, action)] = q
-			self.times_visited[state] += 1
+			##self.Q[(state, action)] = q
+			self.times_visited[(state, action)] += 1
+			self.policy[state] = action
 
-	
-			if q > self.maxQ[state]:
-				##self.maxQ[state] = q
-				self.policy[state] = action
-		
+
 			self.cumulative_reward += reward
 
 			state = next_state
 			t+=1
-		
-		plt.plot(inflation_array)
-		plt.show()
-		
-		plt.plot(gap_array)
-		plt.show()
-		
-		plt.plot(inflation_array, action_array, 'ro')
-		plt.show()
 
-		plt.plot(gap_array, action_array, 'ro')
-		plt.show()
+		if GRAPH:
+		
+			plt.plot(inflation_array)
+			plt.show()
+			
+			plt.plot(gap_array)
+			plt.show()
+
+			plt.plot(action_array)
+			plt.show()
+			'''
+			plt.plot(inflation_array, action_array, 'ro')
+			plt.show()
+
+			plt.plot(gap_array, action_array, 'ro')
+			plt.show()
+			'''
+
+			fig  = plt.figure()
+			ax = fig.gca(projection='3d')
+			ax.scatter(inflation_array, gap_array, action_array)
+			plt.show()
+
+
+
 		
 
-	def calculate_rewards(self, state):
+	def calculate_rewards(self, action_candidate, state, next_action_candidate):
 		## call internally to calculate the cumulative rewards at this state
 		Pt = state[0]
 		Yt = state[1]

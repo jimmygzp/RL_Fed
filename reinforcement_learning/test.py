@@ -21,13 +21,13 @@ if __name__ == "__main__":
 	Pt = 300
 	Yt = 200
 	
-	##feddy.new_run((Pt, Yt), econ, 1000, 1000)
 	feddy.load_progress()
-	##feddy.show_policy()
+	##feddy.new_run((Pt, Yt), econ, 100, 1000)
+	
 
 	feddy.new_run((Pt, Yt), econ, 100, 1)
 
-	##feddy.save_progress()
+	feddy.save_progress()
 	
 
 
