@@ -1,5 +1,22 @@
 import rl
+import sys
 
+
+def new_learning_session(feddy, Pt, Yt, periods, iterations):
+
+	feddy.new_run((Pt, Yt), econ, periods, iterations)
+	feddy.save_progress()
+
+def continue_learning(feddy, Pt, Yt, periods, iterations):
+	feddy.load_progress()
+	feddy.new_run((Pt, Yt), econ, periods, iterations)
+	feddy.save_progress()
+
+def new_test_run(feddy, Pt, Yt, periods):
+
+	feddy.load_progress()
+	feddy.new_run((Pt, Yt), econ, periods, 1)
+	feddy.graph_latest_run()
 
 
 
@@ -20,15 +37,19 @@ if __name__ == "__main__":
 	
 	Pt = 300
 	Yt = 200
-	
-	feddy.load_progress()
-	##feddy.new_run((Pt, Yt), econ, 100, 1000)
+
+	### MANUAL TOGGLE###
+	if sys.argv[1] == '1':
+		new_learning_session(feddy, Pt, Yt, 100, int(sys.argv[2]))
+	elif sys.argv[1] == '2':
+		continue_learning(feddy, Pt, Yt, 100, int(sys.argv[2]))
+	elif sys.argv[1] == '3':
+		new_test_run(feddy, Pt, Yt, int(sys.argv[2]))
+
 	
 
-	feddy.new_run((Pt, Yt), econ, 100, 1)
 
-	feddy.save_progress()
-	
+
 
 
 

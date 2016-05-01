@@ -3,10 +3,10 @@ import cPickle as pickle
 from collections import defaultdict
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+import numpy
 
 ECONOMY_DEBUG = 0
 FED_DEBUG = 0
-GRAPH = 1
 
 K = 1000
 MIN_RATE = 0
@@ -69,9 +69,9 @@ class economy:
 
 		return (inflation, new_y)
 
-
 	def inflation (self, old_inflation, old_gap, new_gap):
 		##error_term = self.error() ## only shock to y, not pi
+		error_term = self.error()
 		new_pi = self.inflation_belief * self.inflation_expectation + (1-self.inflation_belief) * old_inflation + self.a*(old_gap + new_gap)
 		
 		if ECONOMY_DEBUG:
@@ -101,6 +101,7 @@ class economy:
 
 	def error(self):
 		return random.random() * 100 - 50
+		##return 0
 
 class fed:
 	def __init__(self, target, alpha, gamma):
@@ -126,16 +127,34 @@ class fed:
 		if FED_DEBUG:
 			print "new rate grid: " + str(self.rate_grid)
 
+		self.inflation_array = []
+		self.action_array = []
+		self.gap_array = []
+		self.real_array = []
+		self.rewards = []
+		self.rewards_avg = []
+
+		self.inflation_mean_history = []
+		self.inflation_sd_history = []
+		self.gap_mean_history = []
+		self.gap_sd_history = []
+		self.action_mean_history = []
+		self.action_sd_history = []
 
 	def load_progress(self):
 		try:
 			self.policy = pickle.load(open("policy.pickle", "rb"))
-			self.maxQ = pickle.load(open("maxQ.pickle", "rb"))
 			self.Q = pickle.load(open("Q.pickle", "rb"))
 			self.times_visited = pickle.load(open("times_visited.pickle", "rb"))
 		except:
 			print "Open file error; files not found"
+	
+	def save_progress(self):
 
+		pickle.dump(self.policy, open("policy.pickle", "wb"))
+		pickle.dump(self.Q, open("Q.pickle", "wb"))
+		pickle.dump(self.times_visited, open("times_visited.pickle", "wb"))
+	
 	def new_run(self, state, economy, periods, iterations):
 		economy.set_inflation_expectation(self.inflation_target) ## CENTRAL BANK ANNOUNCEMENT
 		t = 0
@@ -146,8 +165,95 @@ class fed:
 
 			print "starting iteration " + str(t)
 			self.new_iteration(state, economy, periods)
+			print "cumulative reward = " + str(self.cumulative_reward)
+			self.rewards.append(self.cumulative_reward) 
+
+			if t > 10:
+				running_avg = sum(self.rewards[-10:]) / 10
+				self.rewards_avg.append(running_avg)
+
 			t += 1
 
+			inflation_mean = numpy.mean(self.inflation_array)
+			inflation_sd = numpy.std(self.inflation_array)
+			gap_mean = numpy.mean(self.gap_array)
+			gap_sd = numpy.std(self.gap_array)
+			action_mean = numpy.mean(self.action_array)
+			action_sd = numpy.std(self.action_array)
+
+
+			print "Inflation mean:%4d, inflation SD:%4d \ngap mean:%4d, gap SD:%4d \nnominal rate mean:%4d, nominal rate SD:%4d" % (inflation_mean, inflation_sd, gap_mean, gap_sd, action_mean, action_sd)
+
+			self.inflation_mean_history.append(inflation_mean)
+			self.inflation_sd_history.append(inflation_sd)
+			self.gap_mean_history.append(gap_mean)
+			self.gap_sd_history.append(gap_sd)
+			self.action_mean_history.append(action_mean)
+			self.action_sd_history.append(action_sd)
+
+
+		plt.figure()
+		plt.subplot(211)
+		plt.plot(self.rewards)
+		plt.title('reward trend')
+		plt.subplot(212)
+		plt.plot(self.rewards_avg)
+		plt.title('10-iteration avg reward trend')
+		plt.show()
+
+		plt.figure()
+		plt.subplot(321)
+		plt.plot(self.inflation_mean_history)
+		plt.title('Inflation mean trend')
+		plt.subplot(322)
+		plt.plot(self.inflation_sd_history)
+		plt.title('Inflation SD trend')
+		plt.subplot(323)
+		plt.plot(self.gap_mean_history)
+		plt.title('Gap mean trend')
+		plt.subplot(324)
+		plt.plot(self.gap_sd_history)
+		plt.title('Gap SD trend')	
+		plt.subplot(325)
+		plt.plot(self.action_mean_history)
+		plt.title('Nominal rate mean trend')	
+		plt.subplot(326)
+		plt.plot(self.action_sd_history)
+		plt.title('Nominal rate SD trend')	
+		plt.show()
+
+
+
+		## stats
+
+	def graph_latest_run(self):	
+
+		plt.figure(1)
+		plt.subplot(221)
+		plt.plot(self.inflation_array)
+		plt.title('Inflation trend')
+		
+		plt.subplot(222)
+		plt.plot(self.gap_array)
+		plt.title('Output gap trend')
+
+		plt.subplot(223)
+		plt.plot(self.action_array)
+		plt.title('Nominal rate trend')
+
+		plt.subplot(224)
+		plt.plot(self.real_array)
+		plt.title('Real rate trend')
+
+		plt.show()
+
+		fig  = plt.figure()
+		ax = fig.gca(projection='3d')
+		ax.scatter(self.inflation_array, self.gap_array, self.action_array)
+		plt.title('Inflation v. Output V. Rate')
+		
+		plt.show()
+		
 
 	def new_iteration(self, initial_state, economy, periods):
 		## set current rewards to zero, back to initial conditions
@@ -155,9 +261,9 @@ class fed:
 		self.cumulative_reward = self.calculate_rewards(0, state, 0)
 
 		t = 0
-		inflation_array = []
-		action_array = []
-		gap_array = []
+		self.inflation_array = []
+		self.action_array = []
+		self.gap_array = []
 		
 		while t < periods:
 			## figure out which rate to set!
@@ -206,32 +312,20 @@ class fed:
 				print "============ q = " + str(q)
 				print "============next state = " + str(next_state)
 			
+			
+			real_rate = action - state[0]
+
 			self.times_visited[(state, action)] += 1
 			self.policy[state] = action
 			self.cumulative_reward += reward
 			state = next_state
 			t+=1
 
-			if GRAPH:
-				inflation_array.append(state[0])
-				gap_array.append(state[1])
-				action_array.append(action)
 
-		if GRAPH:
-		
-			plt.plot(inflation_array)
-			plt.show()
-			
-			plt.plot(gap_array)
-			plt.show()
-
-			plt.plot(action_array)
-			plt.show()
-
-			fig  = plt.figure()
-			ax = fig.gca(projection='3d')
-			ax.scatter(inflation_array, gap_array, action_array)
-			plt.show()
+			self.real_array.append(real_rate)
+			self.inflation_array.append(state[0])
+			self.gap_array.append(state[1])
+			self.action_array.append(action)
 
 
 	def calculate_rewards(self, action_candidate, state, next_action_candidate):
@@ -242,18 +336,9 @@ class fed:
 		## loss function reversed; the smaller the loss the better
 		## loss function * -1
 		## good approximation??
+		return  -1*((Pt - self.inflation_target)^2 + Yt^2) ##+ (2/3) * (action_candidate - next_action_candidate)^2)
 
-		return  -1*((Pt - self.inflation_target)^2 + Yt^2)
 
-	def show_policy(self):
-		print self.policy
-
-	def save_progress(self):
-
-		pickle.dump(self.policy, open("policy.pickle", "wb"))
-		pickle.dump(self.maxQ, open("maxQ.pickle", "wb"))
-		pickle.dump(self.Q, open("Q.pickle", "wb"))
-		pickle.dump(self.times_visited, open("times_visited.pickle", "wb"))
 
 
 
