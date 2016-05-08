@@ -4,30 +4,108 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import numpy
+import math
+import pandas ## for csv handling
 
 ECONOMY_DEBUG = 0
 FED_DEBUG = 0
+EXPERIMENTAL = 0
+BLANK = 0
+RANDOM_DEBUG = 0
 
 K = 1000
 MIN_RATE = 0
 MAX_RATE = 1000
 STEP = 25 ## 25bps steps
 
-class economy:
+class economy_log:
 
-	def __init__(self, natural_rate, a, b, belief):
+	def __init__(self):
+		self.inflation_history = []
+		self.gap_history = []
+		self.actual_rate = []
 
-		self.natural_rate = natural_rate
-		self.a = a
-		self.b = b
-		self.inflation_expectation = 0
-		self.inflation_belief = belief
+		colnames = ['date', 'gap', 'inflation', 'rate']
+		data = pandas.read_csv('benchmark.csv', names = colnames)
+
+		self.gap_history = map(float, data.gap.tolist()[1:-1])
+		self.inflation_history = map(float, data.inflation.tolist()[1:-1])
+		self.actual_rate = map(float, data.rate.tolist()[1:-1])
+		self.t = 0
 
 	def round(self, number):
 		if number > 1000:
 			number = 1000
 		if number < -1000:
+			number = -1000
+		if number < 0:
+			if number%STEP >= STEP/2:
+				return int(STEP+number-number%STEP)
+			else:
+				return int(number-number%STEP)
+		else:
+			if number%STEP >= STEP/2:
+				return int(number + (STEP -  number%STEP))
+			else:
+				return int(number - number%STEP)
+
+	def next (self):
+		if self.t < len(self.gap_history):
+			inflation = self.round(self.inflation_history[self.t])
+			gap = self.round(self.gap_history[self.t])
+			self.t +=1
+			return (inflation, gap)
+		else:
+			print "error, t = " + str(self.t) + ", len = " + str(len(self.gap_history))
+
+	def initial(self):
+		return self.round(self.inflation_history[0]), self.round(self.gap_history[0])
+
+	def periods(self):
+		return len(self.gap_history)-1
+
+	def set_inflation_expectation(self, inflation):
+		pass
+
+
+
+
+
+class economy:
+
+	def __init__(self, natural_rate, a, b, c, belief, error_corr):
+
+		self.natural_rate = natural_rate
+		self.a = a
+		self.b = b
+		self.c = c
+		self.inflation_expectation = 0
+		self.inflation_belief = belief
+
+		self.inflation_error_array = []
+		self.gap_error_array = []
+
+		self.generate_random_sequences(error_corr)
+
+		if RANDOM_DEBUG:
+			plt.scatter(self.inflation_error_array, self.gap_error_array)
+
+
+	def generate_random_sequences(self, corr): ## generates correlated random sequence
+		index = 0
+		while index < 100:
+			number = random.random() * 50 - 25
+			self.inflation_error_array.append(number)
+			number2 = random.random() * 50- 25
+			self.gap_error_array.append(corr * number + math.sqrt(1 - corr**2) * number2)
+			index +=1
+
+
+	def round(self, number):
+		if number > 1000:
 			number = 1000
+		if number < -1000:
+			number = -1000
 		if number < 0:
 			if number%STEP >= STEP/2:
 				return int(STEP+number-number%STEP)
@@ -43,6 +121,7 @@ class economy:
 		self.inflation_expectation = inflation
 
 	def next (self, state, nominal_rate):
+
 		if ECONOMY_DEBUG:
 			print "====Economy generating next state===="
 			print "input state (inflation, gap) : " + str(state),
@@ -55,8 +134,15 @@ class economy:
 		if ECONOMY_DEBUG:
 			print "New real interest rate = " + str(R_new)
 
-		new_y = self.output_gap(Yt, R_new)
-		inflation = self.inflation(Pt, Yt, new_y)
+		error_index = int(random.random() * 100)
+		new_y = self.output_gap(Yt, R_new, error_index)
+		inflation = self.inflation(Pt, Yt, new_y, error_index)
+
+
+		if EXPERIMENTAL:
+
+			inflation = (self.a * self.c * (nominal_rate - self.natural_rate) + self.b * (Pt - self.inflation_expectation) - self.c * (2 * Yt - self.error()) - Pt) / (self.a * self.c - 1)
+
 
 		if ECONOMY_DEBUG:
 			print "New gap = " + str(new_y)
@@ -69,11 +155,11 @@ class economy:
 
 		return (inflation, new_y)
 
-	def inflation (self, old_inflation, old_gap, new_gap):
+	def inflation (self, old_inflation, old_gap, new_gap, error_index):
 		##error_term = self.error() ## only shock to y, not pi
-		error_term = self.error()
-		new_pi = self.inflation_belief * self.inflation_expectation + (1-self.inflation_belief) * old_inflation + self.a*(old_gap + new_gap)
-		
+		error_term = self.inflation_error_array[error_index]
+		new_pi = self.inflation_belief * self.inflation_expectation + (1-self.inflation_belief) * old_inflation + self.c*(old_gap + new_gap)
+	
 		if ECONOMY_DEBUG:
 			print "++++++Calculating new inflation++",
 			print "old_inflation = " + str(old_inflation),
@@ -86,8 +172,8 @@ class economy:
 			print "++++++"
 		return new_pi
 
-	def output_gap (self, old_y, new_r):
-		error_term = self.error()
+	def output_gap (self, old_y, new_r, error_index):
+		error_term = self.gap_error_array[error_index]
 		new_y = old_y - self.b * (new_r - self.natural_rate) + error_term
 		if ECONOMY_DEBUG:
 			print "++Calculating new gap",
@@ -100,7 +186,10 @@ class economy:
 		return new_y
 
 	def error(self):
-		return random.random() * 100 - 50
+		##return random.random() * 25 - 50
+		index = int(random.random() * 1000)
+		return 
+
 		##return 0
 
 class fed:
@@ -141,6 +230,10 @@ class fed:
 		self.action_mean_history = []
 		self.action_sd_history = []
 
+
+		self.inflation_error_history = []
+		self.gap_error_history = []
+
 	def load_progress(self):
 		try:
 			self.policy = pickle.load(open("policy.pickle", "rb"))
@@ -155,6 +248,26 @@ class fed:
 		pickle.dump(self.Q, open("Q.pickle", "wb"))
 		pickle.dump(self.times_visited, open("times_visited.pickle", "wb"))
 	
+
+	def dummy_run(self, state, economy, periods, rate):
+		
+		economy.set_inflation_expectation(self.inflation_target)
+		t = 0
+
+		next_state = state
+		
+		while t<periods:
+			next_state = economy.next(next_state, rate)
+			self.inflation_array.append(next_state[0])
+			self.gap_array.append(next_state[1])
+			self.action_array.append(rate)
+			self.real_array.append(rate - next_state[0])
+			t+=1
+
+		self.graph_latest_run()
+
+
+
 	def new_run(self, state, economy, periods, iterations):
 		economy.set_inflation_expectation(self.inflation_target) ## CENTRAL BANK ANNOUNCEMENT
 		t = 0
@@ -328,6 +441,113 @@ class fed:
 			self.action_array.append(action)
 
 
+	def real_test_run(self, economy, economy_log):
+
+		periods = economy_log.periods()
+		t = 0
+		while t < periods:
+			state = economy_log.next()
+			action = self.action_response(state, economy)
+			self.inflation_array.append(state[0])
+			self.gap_array.append(state[1])
+			self.real_array.append(action - state[0])
+			self.action_array.append(action)
+			t+=1
+
+		plt.figure(1)
+		plt.subplot(321)
+		plt.plot(self.inflation_array)
+		plt.title('Inflation trend')
+		
+		plt.subplot(322)
+		plt.plot(self.gap_array)
+		plt.title('Output gap trend')
+
+		plt.subplot(323)
+		plt.plot(self.action_array)
+		plt.title('Projected Nominal rate trend')
+
+
+		plt.subplot(324)
+		plt.plot(economy_log.actual_rate)
+		plt.title('Actual rate trend')
+		
+		i = 0
+		actual_rate_diff = []
+		projected_rate_diff = []
+		while i < len(self.action_array)-1:
+			actual_rate_diff.append(economy_log.actual_rate[i+1] - economy_log.actual_rate[i])
+			projected_rate_diff.append(self.action_array[i+1] - self.action_array[i])
+			i+=1
+
+		plt.subplot(325)
+		plt.plot(projected_rate_diff)
+		plt.title('Change in projected rate')
+
+		plt.subplot(326)
+		plt.plot(actual_rate_diff)
+		plt.title('Change in actual rate')
+
+		plt.show()
+
+
+	def action_response(self, initial_state, economy): ## for plotting real world data
+			## set current rewards to zero, back to initial conditions
+			state = initial_state
+			self.cumulative_reward = self.calculate_rewards(0, state, 0)
+
+			t = 0
+			## figure out which rate to set!
+			## go through each possible action, calculate reward;
+			## determine max
+			if FED_DEBUG:
+				print "---Beginning period " + str(t)
+				print "---Current state is " + str(state)
+
+			action = 0
+			reward = 0
+			q = -float("inf")
+			next_state = state
+
+			for action_candidate in self.rate_grid:
+				next_state_candidate = economy.next(state, action_candidate)
+				next_action_candidate = self.policy[next_state_candidate]
+				f = self.Q[(next_state_candidate, next_action_candidate)] + K / (self.times_visited[(next_state_candidate, next_action_candidate)]+1) ## avoid div/0 error
+
+				reward_potential = self.calculate_rewards(action_candidate, next_state_candidate, next_action_candidate)
+
+				q_candidate  = (1-self.alpha) * self.Q[(state, action)]  + self.alpha * (reward_potential + self.gamma * f)
+				self.Q[(state, action)] = q_candidate
+
+				if FED_DEBUG:
+					print "action candidate: " + str(action_candidate)
+					print "f = " + str(f)
+			
+				if q_candidate > q:
+					action = action_candidate
+					next_state = next_state_candidate
+					q = q_candidate
+					reward = reward_potential
+					if FED_DEBUG:
+						print "New state-action pair considered.. ",
+						print "action = " + str(action)
+						print "next state candidate = " + str(next_state_candidate),
+						print "next action candidate = " + str(next_action_candidate),
+						print "times visited = " + str(self.times_visited[(next_state_candidate, next_action_candidate)]),
+						print "reward calculated = " + str(reward),
+						print "weighted f = " + str(f)
+						print "q = " + str(q_candidate)
+
+			if FED_DEBUG:
+				print "============FINAL ACTION FOR STATE " + str(state) + " is " + str(action) + " ==================="
+				print "============ q = " + str(q)
+				print "============next state = " + str(next_state)
+			
+
+
+			return action
+
+
 	def calculate_rewards(self, action_candidate, state, next_action_candidate):
 		## call internally to calculate the cumulative rewards at this state
 		Pt = state[0]
@@ -336,7 +556,8 @@ class fed:
 		## loss function reversed; the smaller the loss the better
 		## loss function * -1
 		## good approximation??
-		return  -1*((Pt - self.inflation_target)^2 + Yt^2) ##+ (2/3) * (action_candidate - next_action_candidate)^2)
+
+		return  -1*((Pt - self.inflation_target)^2 + Yt^2 + (2/3) * (action_candidate - next_action_candidate)^2)
 
 
 
